@@ -129,9 +129,9 @@
                   <span>{{ parseTime(scope.row.createTime, '{y}-{m}-{d} {h}:{i}') }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="到期时间" align="center" width="150">
+              <el-table-column label="卡券到期(空=待使用)" align="center" width="170">
                 <template slot-scope="scope">
-                  <span>{{ parseTime(scope.row.expiryTime, '{y}-{m}-{d} {h}:{i}') }}</span>
+                  <span>{{ parseTime(scope.row.expiryTime, '{y}-{m}-{d} {h}:{i}') || '待使用' }}</span>
                 </template>
               </el-table-column>
               <el-table-column label="有效期" align="center" min-width="80">

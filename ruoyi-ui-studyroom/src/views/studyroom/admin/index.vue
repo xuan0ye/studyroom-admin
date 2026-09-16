@@ -111,7 +111,7 @@
           </el-form-item>
           <el-form-item label="到期时间">
             <el-date-picker v-model="grantForm.expiryTime" type="datetime" value-format="yyyy-MM-dd HH:mm:ss"
-              placeholder="缺省=按卡term天数" style="width: 100%;" />
+              placeholder="留空 = 不预设到期日, 客户首次预约使用时起算" style="width: 100%;" />
           </el-form-item>
           <el-form-item label="发放说明">
             <el-input v-model="grantForm.reason" type="textarea" :rows="2" placeholder="可选" />
