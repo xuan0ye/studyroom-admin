@@ -7,8 +7,9 @@
     <el-row :gutter="12" style="margin-bottom: 12px;">
       <el-col :span="6">
         <el-card shadow="never">
-          <div style="color:#909399;font-size:13px;">锁座中（座位已被占）</div>
-          <div style="font-size:26px;font-weight:600;color:#E6A23C;">{{ lockedRows.length }}</div>
+          <div style="color:#909399;font-size:13px;">全场在座（合计）</div>
+          <div style="font-size:26px;font-weight:600;color:#E6A23C;">{{ lockedRows.length + onsiteOrderRows.length }}</div>
+          <div style="color:#909399;font-size:12px;">卡券锁座 {{ lockedRows.length }} · 时租订单 {{ onsiteOrderRows.length }}</div>
         </el-card>
       </el-col>
       <el-col :span="6">
@@ -31,12 +32,15 @@
       </el-col>
     </el-row>
 
-    <!-- 1. 锁座中 -->
+    <!-- 1. 全场在座 -->
     <el-card shadow="never" style="margin-bottom: 12px;">
       <div slot="header">
-        <b>① 锁座中 —— 谁在用、锁到什么时候、还剩多少天</b>
+        <b>① 全场在座一览 —— 卡券锁座 + 时租/余额订单</b>
       </div>
-      <el-table v-loading="loading" :data="lockedRows" size="small" empty-text="当前没有人锁座（周卡/月卡预约后才会锁座）">
+
+      <div style="font-weight:600;color:#E6A23C;margin:4px 0 8px;">A. 卡券锁座（周卡/月卡预约后自动锁座）</div>
+      <el-table v-loading="loading" :data="lockedRows" size="small" :show-header="true"
+        empty-text="当前没有卡券锁座">
         <el-table-column label="用户" min-width="120">
           <template slot-scope="scope">{{ scope.row.nickname }}</template>
         </el-table-column>
@@ -62,6 +66,48 @@
         </el-table-column>
         <el-table-column label="卡券到期" width="150">
           <template slot-scope="scope">{{ scope.row.expiryText }}</template>
+        </el-table-column>
+      </el-table>
+
+      <div style="font-weight:600;color:#409EFF;margin:16px 0 8px;">
+        B. 时租/余额订单（按小时下单，进行中与待开始）
+        <span style="color:#909399;font-weight:400;font-size:12px;margin-left:8px;">
+          （时租订单共 {{ orders.length }} 条，其中进行中/待开始 {{ onsiteOrderRows.length }} 条；历史明细见「余额/小时预约单」）
+        </span>
+      </div>
+      <el-table v-loading="loading" :data="onsiteOrderRows" size="small"
+        empty-text="当前没有进行中的时租订单（结束时间在未来的订单会出现在这里）">
+        <el-table-column label="状态" width="100">
+          <template slot-scope="scope">
+            <el-tag :type="scope.row.stateType" size="mini">{{ scope.row.stateText }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="用户" min-width="120">
+          <template slot-scope="scope">{{ scope.row.nickname }}</template>
+        </el-table-column>
+        <el-table-column label="手机号" width="130">
+          <template slot-scope="scope">{{ scope.row.phone || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="座位号" width="90">
+          <template slot-scope="scope">
+            <el-tag size="mini">{{ scope.row.seatNum }} 号</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="门店" min-width="120" prop="roomName" />
+        <el-table-column label="开始时间" width="150">
+          <template slot-scope="scope">{{ fmtDay(scope.row.startTime) }}</template>
+        </el-table-column>
+        <el-table-column label="结束时间" width="150">
+          <template slot-scope="scope">{{ fmtDay(scope.row.endTime) }}</template>
+        </el-table-column>
+        <el-table-column label="时长" width="80">
+          <template slot-scope="scope">{{ scope.row.hours ? scope.row.hours + ' 小时' : '-' }}</template>
+        </el-table-column>
+        <el-table-column label="金额" width="90">
+          <template slot-scope="scope">{{ scope.row.total != null ? '¥' + scope.row.total : '-' }}</template>
+        </el-table-column>
+        <el-table-column label="支付" width="90">
+          <template slot-scope="scope">{{ payLabel(scope.row.payStatus) }}</template>
         </el-table-column>
       </el-table>
     </el-card>
@@ -136,6 +182,7 @@
 <script>
 import { listCardUser } from '@/api/studyroom/cardUser'
 import { listBooking } from '@/api/studyroom/booking'
+import { listOrder } from '@/api/order/order'
 import { listUser } from '@/api/member/user'
 import { listCard } from '@/api/store/card'
 import { listSeat } from '@/api/store/seat'
@@ -152,7 +199,8 @@ export default {
       cardMap: {},
       cardTermMap: {},
       seatMap: {},
-      bookings: []
+      bookings: [],
+      orders: []
     }
   },
   computed: {
@@ -174,6 +222,32 @@ export default {
         return this.ts(r.expiryTime) > now
       }).map(r => this.enrich(r, { lock: false }))
         .sort((a, b) => (b.remainDays || 0) - (a.remainDays || 0))
+    },
+    // 时租/余额订单: 结束时间还没到(在座中 + 待开始)
+    onsiteOrderRows() {
+      const now = Date.now()
+      const um = this.userMap
+      const sm = this.seatMap
+      return this.orders.filter(o => this.ts(o.endTime) > now)
+        .map(o => {
+          const uu = um[String(o.userId)] || {}
+          const started = this.ts(o.startTime) <= now
+          return {
+            orderId: o.orderId,
+            nickname: uu.nickname || o.userName || ('用户' + o.userId),
+            phone: uu.phone || o.userPhone,
+            seatNum: o.seatNum || sm[String(o.seatId)] || '-',
+            roomName: o.roomName || '-',
+            startTime: o.startTime,
+            endTime: o.endTime,
+            hours: o.hours,
+            total: o.total,
+            payStatus: o.payStatus,
+            stateText: started ? '在座中' : '待开始',
+            stateType: started ? 'success' : 'info'
+          }
+        })
+        .sort((a, b) => this.ts(a.startTime) - this.ts(b.startTime))
     },
     // 今日及未来预约
     upcomingRows() {
@@ -207,6 +281,11 @@ export default {
       if (s === 0) return 'warning'
       if (s === 1) return 'success'
       return 'info'
+    },
+    // 订单支付/消费状态(对应后端 PayConstants)
+    payLabel(s) {
+      const map = { 0: '未付款', 1: '已付款', 2: '已取消', 3: '未消费', 4: '已消费' }
+      return map[s] != null ? map[s] : (s == null ? '-' : String(s))
     },
     // 组装一行展示数据
     enrich(r, opt) {
@@ -258,15 +337,17 @@ export default {
       this.loading = true
       try {
         // 并行拉取, 前端关联(不改后端, 不重启服务)
-        const [cu, bk, us, cd, st] = await Promise.all([
+        const [cu, bk, od, us, cd, st] = await Promise.all([
           listCardUser({ pageNum: 1, pageSize: 500 }),
           listBooking({ pageNum: 1, pageSize: 500 }),
+          listOrder({ pageNum: 1, pageSize: 500 }),
           listUser({ pageNum: 1, pageSize: 500 }),
           listCard({ pageNum: 1, pageSize: 100 }),
           listSeat({ pageNum: 1, pageSize: 100 })
         ])
         this.cardUsers = (cu.rows || []).filter(r => r.userId && String(r.userId) !== '1524407108731777026')
         this.bookings = bk.rows || []
+        this.orders = od.rows || []
 
         const um = {}
         ;(us.rows || []).forEach(u => { um[String(u.userId)] = u })
