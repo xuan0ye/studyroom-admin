@@ -26,6 +26,15 @@ export function generateCardRedeem(data) {
   })
 }
 
+// 批量生成通用兑换码(任意卡券, 不绑定购买者)
+export function batchGenerateCardRedeem(data) {
+  return request({
+    url: '/studyroom/cardRedeem/batchGenerate',
+    method: 'post',
+    data: data
+  })
+}
+
 // 作废兑换码
 export function invalidateCardRedeem(id, reason) {
   return request({

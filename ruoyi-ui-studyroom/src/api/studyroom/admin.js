@@ -44,3 +44,12 @@ export function adminUpdateCard(data) {
     data: data
   })
 }
+
+// 删除会员卡券(后台安全删除: 释放锁座/占座、作废预约记录、撤销门禁)
+export function adminRevokeCard(data) {
+  return request({
+    url: '/studyroom/admin/card/revoke',
+    method: 'post',
+    data: data
+  })
+}
