@@ -62,6 +62,15 @@
       </el-table-column>
       <el-table-column label="次数(天)" align="center" prop="frequency" min-width="100" :show-overflow-tooltip="true" />
       <el-table-column label="有效期(天)" align="center" prop="term" min-width="100" :show-overflow-tooltip="true" />
+      <el-table-column label="固定使用区间" align="center" min-width="170">
+        <template slot-scope="scope">
+          <span v-if="scope.row.validStart || scope.row.validEnd">
+            {{ (scope.row.validStart || '').slice(0, 10) }} 至 {{ (scope.row.validEnd || '').slice(0, 10) }}
+            <el-tag size="mini" type="warning" style="margin-left: 4px;">每天单独预约</el-tag>
+          </span>
+          <span v-else>-</span>
+        </template>
+      </el-table-column>
       <el-table-column label="状态" align="center" prop="status">
         <template slot-scope="scope">
           <el-switch v-model="scope.row.status" :active-value="1" :inactive-value="0" active-color="#13ce66"
@@ -102,6 +111,19 @@
         </el-form-item>
         <el-form-item label="有效期(天)" prop="term">
           <el-input v-model="form.term" placeholder="请输入有效期(天)" />
+        </el-form-item>
+        <el-form-item label="固定使用区间">
+          <el-date-picker v-model="form.validStart" type="date" value-format="yyyy-MM-dd" placeholder="起始日"
+            style="width: 45%;" />
+          <span style="margin: 0 6px;">至</span>
+          <el-date-picker v-model="form.validEnd" type="date" value-format="yyyy-MM-dd" placeholder="截止日(含当天)"
+            style="width: 45%;" />
+        </el-form-item>
+        <el-form-item>
+          <span style="color: #909399; font-size: 12px; line-height: 1.5;">
+            两个都填 = <b>固定区间卡</b>（如中秋国庆畅享券）：只能在区间内使用，<b>每天单独预约、不连锁锁座</b>，区间结束即失效；<br />
+            留空 = 普通按天卡：有效期从客户首次预约使用起算，锁座天数为「有效期(天)」。
+          </span>
         </el-form-item>
         <el-form-item label="状态">
           <el-radio-group v-model="form.status">
@@ -233,6 +255,8 @@
           usable: 0,
           frequency: undefined,
           term: undefined,
+          validStart: undefined,
+          validEnd: undefined,
           status: 0,
           createBy: undefined,
           createTime: undefined,
