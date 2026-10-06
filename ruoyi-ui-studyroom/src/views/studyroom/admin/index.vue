@@ -1,6 +1,6 @@
 <template>
   <div class="app-container">
-    <el-tabs v-model="activeTab" type="border-card">
+    <el-tabs v-model="activeTab" type="border-card" @tab-click="onTabClick">
       <!-- ========== 代占座/锁座 ========== -->
       <el-tab-pane label="代占座/锁座" name="occupy">
         <el-form ref="occupyForm" :model="occupyForm" :rules="occupyRules" label-width="110px" size="small" style="max-width: 640px;">
@@ -147,6 +147,28 @@
         </el-form>
       </el-tab-pane>
 
+      <!-- ========== 发放请假次数 ========== -->
+      <el-tab-pane label="发放请假次数" name="leaveGrant">
+        <el-alert type="info" :closable="false" show-icon
+          title="仅月卡/季卡等长期卡(有效期 ≥30 天)可请假停卡，每张卡默认 3 次；此处在原额度上累加，不覆盖。" />
+        <el-form ref="leaveGrantForm" :model="leaveGrantForm" :rules="leaveGrantRules" label-width="110px" size="small" style="max-width: 640px; margin-top: 16px;">
+          <el-form-item label="用户卡记录ID" prop="cardUserId">
+            <el-input v-model="leaveGrantForm.cardUserId" placeholder="必填: sr_card_user.id（卡券列表里那串数字ID）" clearable />
+          </el-form-item>
+          <el-form-item label="追加次数" prop="count">
+            <el-input-number v-model="leaveGrantForm.count" :min="1" :max="100" style="width: 200px;" />
+            <span style="color: #909399; font-size: 12px; margin-left: 10px;">在原额度上累加，例：原 3 次 + 追加 2 次 = 5 次</span>
+          </el-form-item>
+          <el-form-item label="发放说明">
+            <el-input v-model="leaveGrantForm.reason" type="textarea" :rows="2" placeholder="可选，例：客户出差申请追加（记录用）" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="warning" size="small" :loading="leaveGrantLoading" @click="handleGrantLeave">发放请假次数</el-button>
+            <el-button size="small" @click="resetGrantLeave">重置</el-button>
+          </el-form-item>
+        </el-form>
+      </el-tab-pane>
+
       <!-- ========== 灯控自检 ========== -->
       <el-tab-pane label="灯控自检" name="miot">
         <el-alert :type="miot && miot.healthy ? 'success' : 'error'" :closable="false" show-icon
@@ -258,12 +280,81 @@
           </el-form-item>
         </el-form>
       </el-tab-pane>
+
+      <!--
+        门禁设备人员: 显示门禁机里真实存着的人(数据实时来自设备), 与我们库里的档案不是一回事。
+        历史上有一批人是通过厂商页面/App 直接录进设备的 —— 系统看不见、预约结束也不会自动撤销,
+        这个页面的主要用途就是把那些人找出来核对/清理。
+      -->
+      <el-tab-pane label="门禁设备人员" name="deviceUsers">
+        <el-alert type="warning" :closable="false" show-icon style="margin-bottom: 12px">
+          <template slot="title">
+            这里显示的是<strong>门禁机里真实存着的人</strong>（共 {{ deviceTotal }} 人，其中
+            <strong>{{ deviceManaged }}</strong> 人来自本系统）。标为「厂商渠道」的那些是历史上通过厂商页面/App
+            直接录进设备的，<strong>系统管不到、预约结束也不会自动撤销</strong>，需要的话在这里逐个核对删除。
+          </template>
+        </el-alert>
+
+        <el-form :inline="true" size="small" style="margin-bottom: 10px">
+          <el-form-item>
+            <el-button type="primary" icon="el-icon-refresh" :loading="deviceLoading" @click="loadDeviceUsers(false)">刷新列表</el-button>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="warning" icon="el-icon-connection" :loading="deviceLoading" @click="syncDevice">同步门禁（真读设备）</el-button>
+          </el-form-item>
+          <el-form-item label="只看厂商渠道">
+            <el-switch v-model="deviceOnlyVendor" />
+          </el-form-item>
+          <el-form-item label="搜索">
+            <el-input v-model="deviceKeyword" placeholder="姓名 / 账号 / 设备ID" clearable style="width: 220px" />
+          </el-form-item>
+          <el-form-item v-if="deviceSn">
+            <span style="color: #909399; font-size: 12px;">设备 SN：{{ deviceSn }}</span>
+          </el-form-item>
+        </el-form>
+
+        <el-table :data="deviceFiltered" border size="mini" v-loading="deviceLoading" max-height="620">
+          <el-table-column label="人脸" width="92" align="center">
+            <template slot-scope="s">
+              <el-image v-if="s.row.faceImg" :src="'data:image/jpeg;base64,' + s.row.faceImg"
+                :preview-src-list="['data:image/jpeg;base64,' + s.row.faceImg]" fit="cover"
+                style="width: 56px; height: 56px; border-radius: 4px;" />
+              <span v-else style="color: #c0c4cc;">未录</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="姓名" prop="userName" width="140" show-overflow-tooltip />
+          <el-table-column label="账号" prop="userAcct" min-width="220" show-overflow-tooltip />
+          <el-table-column label="来源" width="110" align="center">
+            <template slot-scope="s">
+              <el-tag :type="s.row.managed ? 'success' : 'warning'" size="mini">{{ s.row.source }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="设备ID" prop="userId" width="90" align="center" />
+          <el-table-column label="人脸数" prop="faceCount" width="90" align="center" />
+          <el-table-column label="有效期" width="120" align="center">
+            <template slot-scope="s">
+              <span v-if="!s.row.expOpt || s.row.expOpt === '0'">永久</span>
+              <span v-else>{{ s.row.expOpt }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="90" align="center">
+            <template slot-scope="s">
+              <el-button type="text" size="mini" style="color: #f56c6c;" @click="deleteDeviceUser(s.row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div style="margin-top: 10px; color: #909399; font-size: 12px; line-height: 1.8;">
+          说明：人脸图片实时取自门禁机，<strong>服务器不留存</strong>（后端仅有 60 秒内存缓存，用于避免反复向设备拉取）。
+          每次查看都会记入系统操作日志。
+        </div>
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
 
 <script>
-import { adminOccupy, adminRevoke, adminRefund, adminGrantCard, adminUpdateCard } from "@/api/studyroom/admin";
+import { adminOccupy, adminRevoke, adminRefund, adminGrantCard, adminUpdateCard, adminGrantLeave,
+  adminDeviceUsers, adminDeviceSync, adminDeviceFaces, adminDeviceDeleteUser } from "@/api/studyroom/admin";
 import { listRoom } from "@/api/store/room";
 import { listSeat } from "@/api/store/seat";
 import { listUser } from "@/api/member/user";
@@ -276,6 +367,14 @@ export default {
   data() {
     return {
       activeTab: "occupy",
+      // 门禁设备人员(设备里真实存着的人, 与我们库里的档案不是一回事)
+      deviceLoading: false,
+      deviceUsers: [],
+      deviceSn: "",
+      deviceTotal: 0,
+      deviceManaged: 0,
+      deviceOnlyVendor: false,
+      deviceKeyword: "",
       // 下拉选项数据
       roomOptions: [],
       seatOptions: [],
@@ -310,6 +409,13 @@ export default {
         cardUserId: [{ required: true, message: "用户卡记录ID不能为空", trigger: "blur" }]
       },
       updateCardLoading: false,
+      // 发放请假次数(长期卡停卡额度)
+      leaveGrantForm: { cardUserId: undefined, count: 1, reason: undefined },
+      leaveGrantRules: {
+        cardUserId: [{ required: true, message: "用户卡记录ID不能为空", trigger: "blur" }],
+        count: [{ required: true, message: "追加次数不能为空", trigger: "blur" }]
+      },
+      leaveGrantLoading: false,
       // 灯控自检(米家桥接健康状态)
       miot: {},
       miotLoading: false,
@@ -343,6 +449,19 @@ export default {
         { k: "最近巡检结果", v: m.lastCheck || "暂无记录" },
         { k: "最近异常记录", v: m.lastFail || "无" }
       ];
+    },
+    // 门禁设备人员: 支持"只看厂商渠道"与关键字过滤(前端过滤, 名单只有百来条)
+    deviceFiltered() {
+      let list = this.deviceUsers || [];
+      if (this.deviceOnlyVendor) list = list.filter(u => !u.managed);
+      const kw = (this.deviceKeyword || "").trim().toLowerCase();
+      if (kw) {
+        list = list.filter(u =>
+          String(u.userName || "").toLowerCase().indexOf(kw) > -1 ||
+          String(u.userAcct || "").toLowerCase().indexOf(kw) > -1 ||
+          String(u.userId || "").indexOf(kw) > -1);
+      }
+      return list;
     }
   },
   created() {
@@ -352,6 +471,66 @@ export default {
     this.loadCodes();
   },
   methods: {
+    // ========== 门禁设备人员 ==========
+    // 切到该标签页时才加载(人员清单读本地镜像, 不碰设备)
+    onTabClick(tab) {
+      if (tab && tab.name === "deviceUsers" && !this.deviceUsers.length && !this.deviceLoading) {
+        this.loadDeviceUsers(false);
+      }
+    },
+    // 人员清单来自本地镜像(后端 Redis), 打开页面不会去抓门禁;
+    // 人脸缩略图单独取(服务端进程内缓存), 只有缓存过期才会读一次设备
+    loadDeviceUsers(force) {
+      this.deviceLoading = true;
+      const p = force ? { refresh: 1 } : {};
+      adminDeviceUsers(p).then(res => {
+        const d = res.data || {};
+        this.deviceSn = d.sn || "";
+        this.deviceUsers = d.users || [];
+        this.deviceTotal = d.total || this.deviceUsers.length;
+        this.deviceManaged = d.managed || 0;
+        if (d.autoSynced) this.$modal.msgSuccess("首次使用，已自动同步一次门禁人员");
+        this.loadDeviceFaces();
+      }).catch(() => {
+        this.deviceLoading = false;
+      });
+    },
+    // 人脸缩略图: 失败就静默(列表没图也能用), 不要把整个页面卡住
+    loadDeviceFaces() {
+      const self = this;
+      adminDeviceFaces(this.deviceSn ? { sn: this.deviceSn } : {}).then(res => {
+        const map = res.data || {};
+        const list = self.deviceUsers || [];
+        for (let i = 0; i < list.length; i++) {
+          if (map[list[i].userId]) self.$set(list[i], "faceImg", map[list[i].userId]);
+        }
+        self.deviceUsers = list;
+      }).catch(() => {}).then(() => {
+        self.deviceLoading = false;
+      });
+    },
+    // 唯一真正读设备的入口
+    syncDevice() {
+      this.deviceLoading = true;
+      const p = this.deviceSn ? { sn: this.deviceSn } : {};
+      adminDeviceSync(p).then(() => {
+        this.$modal.msgSuccess("已从门禁设备同步");
+        this.loadDeviceUsers(true);
+      }).catch(() => {
+        this.deviceLoading = false;
+      });
+    },
+    deleteDeviceUser(row) {
+      this.$confirm(
+        "确定要从门禁机删除「" + (row.userName || row.userAcct) + "」吗？\n删除后该人员将立即刷不开门（账号：" + row.userAcct + "，设备ID：" + row.userId + "）",
+        "危险操作", { type: "warning", confirmButtonText: "确认删除", cancelButtonText: "取消" }
+      ).then(() => {
+        return adminDeviceDeleteUser({ userId: row.userId, sn: this.deviceSn });
+      }).then(() => {
+        this.$modal.msgSuccess("已删除");
+        this.loadDeviceUsers(true);
+      }).catch(() => {});
+    },
     // ========== 双人卡兑换码 ==========
     loadCodes() {
       this.codeLoading = true;
@@ -548,6 +727,26 @@ export default {
     },
     resetUpdateCard() {
       this.updateCardForm = { cardUserId: undefined, expiryTime: undefined, leaveCount: undefined, reason: undefined };
+    },
+    handleGrantLeave() {
+      this.$refs.leaveGrantForm.validate(valid => {
+        if (!valid) return;
+        this.$modal.confirm(
+          "确认给卡记录 " + this.leaveGrantForm.cardUserId + " 追加 "
+          + this.leaveGrantForm.count + " 次请假额度？\n（仅长期卡可请假，额度在原值上累加）"
+        ).then(() => {
+          this.leaveGrantLoading = true;
+          return adminGrantLeave(this.leaveGrantForm);
+        }).then(res => {
+          this.$modal.msgSuccess((res && res.msg) || "发放成功");
+          this.resetGrantLeave();
+        }).catch(() => {
+          // 用户取消确认：静默忽略，避免未处理的 promise 拒绝
+        }).finally(() => { this.leaveGrantLoading = false; });
+      });
+    },
+    resetGrantLeave() {
+      this.leaveGrantForm = { cardUserId: undefined, count: 1, reason: undefined };
     }
   }
 };
