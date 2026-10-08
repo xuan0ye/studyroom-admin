@@ -73,6 +73,76 @@
         </el-form>
       </el-tab-pane>
 
+      <!-- ========== 释放座位 ========== -->
+      <el-tab-pane label="释放座位" name="releaseSeat">
+        <el-alert type="info" :closable="false" style="margin-bottom: 12px;"
+          title="代占座/锁座之后必须在这里释放, 座位才真的空出来 —— 座位图与预约占用检查读的是「占座记录」, 只把锁座置为已取消是不够的。释放会一次清掉: 占座记录 + 锁座记录 + 卡锁座(可选) + 对应日卡消费(可选) + 门禁权限(可选)。" />
+
+        <el-form inline size="small" style="margin-bottom: 8px;">
+          <el-form-item label="自习室">
+            <el-select v-model="releaseQuery.roomId" clearable placeholder="全部" style="width: 170px;" @change="loadOccupations">
+              <el-option v-for="r in roomOptions" :key="r.roomId" :label="r.roomName" :value="r.roomId" />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" size="small" :loading="occupationLoading" @click="loadOccupations">刷新当前占座</el-button>
+          </el-form-item>
+          <el-form-item label="筛选">
+            <el-input v-model="occupationKeyword" placeholder="座位号 / 昵称 / 手机号" clearable style="width: 200px;" />
+          </el-form-item>
+        </el-form>
+
+        <el-table v-loading="occupationLoading" :data="occupationFiltered" border size="mini" max-height="420">
+          <el-table-column label="座位号" prop="seatNum" width="80" align="center" />
+          <el-table-column label="会员" prop="nickname" width="150" show-overflow-tooltip />
+          <el-table-column label="手机号" prop="phone" width="120" />
+          <el-table-column label="占用时间" width="300">
+            <template slot-scope="s">{{ fmtRange(s.row.startTime, s.row.endTime) }}</template>
+          </el-table-column>
+          <el-table-column label="天数" prop="days" width="64" align="center" />
+          <el-table-column label="来源" prop="source" width="160" show-overflow-tooltip />
+          <el-table-column label="操作" width="100" align="center">
+            <template slot-scope="s">
+              <el-button type="danger" size="mini" @click="releaseOccupation(s.row)">释放</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-divider content-position="left">手动释放(列表里找不到时用)</el-divider>
+        <el-form :model="releaseForm" label-width="110px" size="small" style="max-width: 680px;">
+          <el-form-item label="占座记录ID">
+            <el-input v-model="releaseForm.seatRecordId" placeholder="sr_seat_record.id(与锁座ID/会员三选一)" clearable />
+          </el-form-item>
+          <el-form-item label="锁座记录ID">
+            <el-input v-model="releaseForm.lockId" placeholder="sr_seat_lock.id" clearable />
+          </el-form-item>
+          <el-form-item label="会员">
+            <el-select v-model="releaseForm.userId" filterable clearable placeholder="搜索昵称/手机号(按会员释放)"
+              style="width: 100%;" @focus="!userOptions.length && loadUsers()">
+              <el-option v-for="u in userOptions" :key="u.userId" :label="u.nickname + (u.phone ? '（' + u.phone + '）' : '')" :value="u.userId" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="释放范围">
+            <el-radio-group v-model="releaseForm.scope">
+              <el-radio label="seatUser">该会员在此座位的全部未结束占用</el-radio>
+              <el-radio label="record">只释放选中的那一条</el-radio>
+              <el-radio label="user">该会员全部座位</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="同时处理">
+            <el-checkbox v-model="releaseForm.clearCardLock">解除卡锁座(长期卡会冻结剩余天数)</el-checkbox>
+            <el-checkbox v-model="releaseForm.revokeAccess">撤销门禁权限</el-checkbox>
+          </el-form-item>
+          <el-form-item label="原因">
+            <el-input v-model="releaseForm.reason" type="textarea" :rows="2" placeholder="可选, 会记入日志" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="danger" size="small" :loading="releaseLoading" @click="handleReleaseSeat">执行释放</el-button>
+            <el-button size="small" @click="resetRelease">重置</el-button>
+          </el-form-item>
+        </el-form>
+      </el-tab-pane>
+
       <!-- ========== 退款 ========== -->
       <el-tab-pane label="退款" name="refund">
         <el-form ref="refundForm" :model="refundForm" :rules="refundRules" label-width="110px" size="small" style="max-width: 640px;">
@@ -354,7 +424,8 @@
 
 <script>
 import { adminOccupy, adminRevoke, adminRefund, adminGrantCard, adminUpdateCard, adminGrantLeave,
-  adminDeviceUsers, adminDeviceSync, adminDeviceFaces, adminDeviceDeleteUser } from "@/api/studyroom/admin";
+  adminDeviceUsers, adminDeviceSync, adminDeviceFaces, adminDeviceDeleteUser,
+  adminSeatOccupations, adminReleaseSeat } from "@/api/studyroom/admin";
 import { listRoom } from "@/api/store/room";
 import { listSeat } from "@/api/store/seat";
 import { listUser } from "@/api/member/user";
@@ -392,6 +463,21 @@ export default {
       revokeForm: { lockId: undefined, userId: undefined, roomId: undefined, reason: undefined },
       revokeRules: {},
       revokeLoading: false,
+      // 释放座位
+      occupationLoading: false,
+      occupations: [],
+      occupationKeyword: "",
+      releaseQuery: { roomId: undefined },
+      releaseForm: {
+        seatRecordId: undefined,
+        lockId: undefined,
+        userId: undefined,
+        scope: "seatUser",
+        clearCardLock: true,
+        revokeAccess: true,
+        reason: undefined
+      },
+      releaseLoading: false,
       // 退款
       refundForm: { orderId: undefined, orderNo: undefined, amount: undefined, reason: undefined },
       refundRules: {},
@@ -437,6 +523,18 @@ export default {
     };
   },
   computed: {
+    // 当前座位占用: 按关键字过滤(座位号/昵称/手机号), 名单只有百来条, 前端过滤足够
+    occupationFiltered() {
+      const kw = (this.occupationKeyword || "").trim().toLowerCase();
+      const list = this.occupations || [];
+      if (!kw) return list;
+      return list.filter(o => {
+        const seat = (o.seatNum == null ? "" : String(o.seatNum));
+        return seat.indexOf(kw) > -1
+          || (o.nickname || "").toLowerCase().indexOf(kw) > -1
+          || (o.phone || "").indexOf(kw) > -1;
+      });
+    },
     // 灯控自检: 把后端返回的健康信息整理成表格行
     miotRows() {
       const m = this.miot || {};
@@ -476,6 +574,10 @@ export default {
     onTabClick(tab) {
       if (tab && tab.name === "deviceUsers" && !this.deviceUsers.length && !this.deviceLoading) {
         this.loadDeviceUsers(false);
+      }
+      // 「释放座位」: 切过去就自动拉一次当前占座, 免得还要先点刷新
+      if (tab && tab.name === "releaseSeat" && !this.occupationLoading) {
+        this.loadOccupations();
       }
     },
     // 人员清单来自本地镜像(后端 Redis), 打开页面不会去抓门禁;
@@ -674,6 +776,73 @@ export default {
         this.$modal.msgSuccess("撤销成功");
         this.resetRevoke();
       }).finally(() => { this.revokeLoading = false; });
+    },
+    // ==================== 释放座位 ====================
+    fmtRange(s, e) {
+      if (!s && !e) return "-";
+      return (s || "-") + "  ~  " + (e || "-");
+    },
+    loadOccupations() {
+      this.occupationLoading = true;
+      adminSeatOccupations(this.releaseQuery.roomId ? { roomId: this.releaseQuery.roomId } : {})
+        .then(res => { this.occupations = res.data || []; })
+        .finally(() => { this.occupationLoading = false; });
+    },
+    // 列表里点「释放」: 默认按"该会员+该座位全部未结束占用"释放(即彻底取消)
+    releaseOccupation(row) {
+      const who = (row.nickname || row.phone || ("用户 " + row.userId));
+      const tip = "确认释放【" + (row.seatNum == null ? "" : row.seatNum + " 号座") + " / " + who + "】吗？\n\n"
+        + "占用时间: " + this.fmtRange(row.startTime, row.endTime) + "\n"
+        + "来源: " + (row.source || "-") + "\n\n"
+        + "释放会删除该会员在此座位的全部未结束占座记录, 并取消对应锁座。";
+      this.$modal.confirm(tip, "释放座位").then(() => {
+        this.releaseLoading = true;
+        return adminReleaseSeat({
+          seatRecordId: row.recordId,
+          userId: row.userId,
+          seatId: row.seatId,
+          roomId: row.roomId,
+          scope: "seatUser",
+          clearCardLock: true,
+          revokeAccess: true,
+          reason: "后台列表一键释放"
+        });
+      }).then(res => {
+        const m = res && res.data && res.data.message ? res.data.message : "释放完成";
+        this.$modal.msgSuccess(m);
+        this.loadOccupations();
+      }).finally(() => { this.releaseLoading = false; });
+    },
+    handleReleaseSeat() {
+      const f = this.releaseForm;
+      if (!f.seatRecordId && !f.lockId && !f.userId) {
+        this.$modal.msgWarning("占座记录ID / 锁座记录ID / 会员 至少填一个");
+        return;
+      }
+      if (f.scope === "record" && !f.seatRecordId) {
+        this.$modal.msgWarning("按单条释放时必须填占座记录ID");
+        return;
+      }
+      this.$modal.confirm("确认执行释放座位？该操作会删除占座记录并取消锁座，无法撤销。").then(() => {
+        this.releaseLoading = true;
+        return adminReleaseSeat(f);
+      }).then(res => {
+        const m = res && res.data && res.data.message ? res.data.message : "释放完成";
+        this.$modal.msgSuccess(m);
+        this.resetRelease();
+        this.loadOccupations();
+      }).finally(() => { this.releaseLoading = false; });
+    },
+    resetRelease() {
+      this.releaseForm = {
+        seatRecordId: undefined,
+        lockId: undefined,
+        userId: undefined,
+        scope: "seatUser",
+        clearCardLock: true,
+        revokeAccess: true,
+        reason: undefined
+      };
     },
     handleRefund() {
       if (!this.refundForm.orderId && !this.refundForm.orderNo) {

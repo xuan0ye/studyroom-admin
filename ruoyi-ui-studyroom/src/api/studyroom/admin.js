@@ -18,6 +18,29 @@ export function adminRevoke(data) {
   })
 }
 
+// ── 释放座位 ──────────────────────────────────────────────────────
+// 背景: 「代占座/锁座」会写 sr_seat_record(占座) + sr_seat_lock(锁座),
+// 而原来的「撤销权限」只把锁座置为已取消、不删占座记录 —— 座位在座位图上仍然被占、别人也约不了。
+// 这两个接口以"座位真的空出来"为目标: 列表看谁占着, 一键把占座/锁座/卡锁座/日卡消费/门禁一次清干净。
+
+// 当前座位占用列表(未结束的占座记录 + 关联的锁座/卡锁座/日卡预约)
+export function adminSeatOccupations(params) {
+  return request({
+    url: '/studyroom/admin/seat/occupations',
+    method: 'get',
+    params: params
+  })
+}
+
+// 释放座位(占座记录ID / 锁座记录ID / 用户ID 三选一)
+export function adminReleaseSeat(data) {
+  return request({
+    url: '/studyroom/admin/seat/release',
+    method: 'post',
+    data: data
+  })
+}
+
 // 退款
 export function adminRefund(data) {
   return request({
