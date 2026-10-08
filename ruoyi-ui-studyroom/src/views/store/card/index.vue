@@ -77,6 +77,15 @@
             inactive-color="#ff4949" @change="handleStatusChange(scope.row)"></el-switch>
         </template>
       </el-table-column>
+      <el-table-column label="排序" align="center" width="140">
+        <template slot-scope="scope">
+          <el-button icon="el-icon-top" size="mini" circle :title="'上移'"
+            :disabled="scope.$index === 0" @click="moveCard(scope.row, -1)" />
+          <span style="display:inline-block; min-width:34px; color:#606266;">{{ scope.row.sort == null ? 0 : scope.row.sort }}</span>
+          <el-button icon="el-icon-bottom" size="mini" circle :title="'下移'"
+            :disabled="scope.$index === cardList.length - 1" @click="moveCard(scope.row, 1)" />
+        </template>
+      </el-table-column>
       <el-table-column label="操作" fixed="right" width="120" align="center" class-name="small-padding fixed-width">
         <template slot-scope="scope">
           <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
@@ -123,6 +132,13 @@
           <span style="color: #909399; font-size: 12px; line-height: 1.5;">
             两个都填 = <b>固定区间卡</b>（如中秋国庆畅享券）：只能在区间内使用，<b>每天单独预约、不连锁锁座</b>，区间结束即失效；<br />
             留空 = 普通按天卡：有效期从客户首次预约使用起算，锁座天数为「有效期(天)」。
+          </span>
+        </el-form-item>
+        <el-form-item label="排序">
+          <el-input-number v-model="form.sort" :min="-9999" :max="9999" controls-position="right"
+            style="width: 130px;" />
+          <span style="color: #909399; font-size: 12px; margin-left: 8px;">
+            数字越小越靠前，<b>0 = 最前</b>（新建默认 0，所以新卡会排在第一位）
           </span>
         </el-form-item>
         <el-form-item label="状态">
@@ -258,6 +274,7 @@
           validStart: undefined,
           validEnd: undefined,
           status: 0,
+          sort: 0,
           createBy: undefined,
           createTime: undefined,
           updateBy: undefined,
@@ -322,6 +339,23 @@
               });
             }
           }
+        });
+      },
+      /** 上移/下移: 只改这一条的排序值, 让它插到相邻那条的前(后)面 —— 一次接口调用搞定。
+       *  注意要提交整行: 后端 edit 接口按 EditGroup 校验, 只传 {id, sort} 会因必填字段缺失被拒。 */
+      moveCard(row, dir) {
+        const list = this.cardList || [];
+        const idx = list.indexOf(row);
+        const target = list[idx + dir];
+        if (!target) return;
+        const base = target.sort == null ? 0 : Number(target.sort);
+        const payload = Object.assign({}, row, { sort: dir === -1 ? base - 1 : base + 1 });
+        this.loading = true;
+        updateCard(payload).then(() => {
+          this.$modal.msgSuccess(dir === -1 ? "已上移" : "已下移");
+          this.getList();
+        }).catch(() => {}).finally(() => {
+          this.loading = false;
         });
       },
       /** 删除按钮操作 */
