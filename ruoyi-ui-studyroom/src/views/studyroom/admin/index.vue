@@ -407,9 +407,11 @@
               <span v-else>{{ s.row.expOpt }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="90" align="center">
+          <el-table-column label="操作" width="130" align="center">
             <template slot-scope="s">
-              <el-button type="text" size="mini" style="color: #f56c6c;" @click="deleteDeviceUser(s.row)">删除</el-button>
+              <el-button type="text" size="mini" style="color: #e6a23c;"
+                :disabled="!s.row.hasFace && !(s.row.faceCount > 0)" @click="deleteDeviceFace(s.row)">删脸</el-button>
+              <el-button type="text" size="mini" style="color: #f56c6c;" @click="deleteDeviceUser(s.row)">删除人员</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -424,7 +426,7 @@
 
 <script>
 import { adminOccupy, adminRevoke, adminRefund, adminGrantCard, adminUpdateCard, adminGrantLeave,
-  adminDeviceUsers, adminDeviceSync, adminDeviceFaces, adminDeviceDeleteUser,
+  adminDeviceUsers, adminDeviceSync, adminDeviceFaces, adminDeviceDeleteUser, adminDeviceDeleteFace,
   adminSeatOccupations, adminReleaseSeat } from "@/api/studyroom/admin";
 import { listRoom } from "@/api/store/room";
 import { listSeat } from "@/api/store/seat";
@@ -630,6 +632,23 @@ export default {
         return adminDeviceDeleteUser({ userId: row.userId, sn: this.deviceSn });
       }).then(() => {
         this.$modal.msgSuccess("已删除");
+        this.loadDeviceUsers(true);
+      }).catch(() => {});
+    },
+    // 只删人脸, 人员保留(账号/权限不动): 适合"脸录错了要重录"或"不再需要刷脸但账号要留着"
+    deleteDeviceFace(row) {
+      const who = (row.userName || row.userAcct);
+      this.$confirm(
+        "确定删除「" + who + "」在门禁机上的人脸吗？\n\n"
+        + "· 只删人脸, 人员账号保留(设备ID：" + row.userId + ")\n"
+        + "· 删除后该人员立即刷不开门, 需要重新录脸才能刷\n"
+        + "· 同时会清空该会员在小程序里的门禁档案, 小程序将显示「未录人脸」\n\n"
+        + "如果他连账号也不该留, 请改用「删除人员」。",
+        "删除门禁人脸", { type: "warning", confirmButtonText: "确认删脸", cancelButtonText: "取消" }
+      ).then(() => {
+        return adminDeviceDeleteFace({ userId: row.userId, sn: this.deviceSn, clearProfile: true });
+      }).then(res => {
+        this.$modal.msgSuccess((res && res.msg) || "已删除该人员的人脸");
         this.loadDeviceUsers(true);
       }).catch(() => {});
     },

@@ -135,3 +135,12 @@ export function adminDeviceDeleteUser(params) {
     params: params
   })
 }
+
+// 只删除某人的人脸, 人员保留(账号/权限不动); clearProfile=true 时同时清空小程序里的门禁档案
+export function adminDeviceDeleteFace(params) {
+  return request({
+    url: '/studyroom/admin/device/face',
+    method: 'delete',
+    params: params
+  })
+}
