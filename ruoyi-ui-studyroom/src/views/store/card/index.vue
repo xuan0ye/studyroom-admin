@@ -108,6 +108,14 @@
         <el-form-item label="价格" prop="price">
           <el-input v-model="form.price" placeholder="请输入价格" />
         </el-form-item>
+        <el-form-item label="卡券说明">
+          <el-input v-model="form.cardDesc" type="textarea" :rows="6" maxlength="1000" show-word-limit
+            placeholder="小程序卡券页会展示这段说明，可换行。例如：仅限 1-15 号无帘座位；每张卡可请假 3 次；不选座位可直接取消" />
+          <span style="color: #909399; font-size: 12px; line-height: 1.6;">
+            小程序卡券页选中哪张卡，就显示哪张卡的这段说明 —— 用来讲清相近卡券的区别
+            （沉浸区/带帘、可选座位范围、每张卡可请假几次、是否锁座等）。可以换行写多条。
+          </span>
+        </el-form-item>
         <el-form-item label="可用区域">
           <el-radio-group v-model="form.usable">
             <el-radio v-for="dict in dict.type.area_status" :key="dict.value" :label="parseInt(dict.value)">
@@ -267,6 +275,7 @@
         this.form = {
           id: undefined,
           cardTitle: undefined,
+          cardDesc: undefined,
           price: undefined,
           usable: 0,
           frequency: undefined,
