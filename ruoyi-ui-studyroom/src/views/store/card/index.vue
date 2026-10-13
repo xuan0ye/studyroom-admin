@@ -7,9 +7,9 @@
       <el-form-item label="价格" prop="price">
         <el-input v-model="queryParams.price" placeholder="请输入价格" clearable @keyup.enter.native="handleQuery" />
       </el-form-item>
-      <el-form-item label="可用区域" prop="usable">
-        <el-select v-model="queryParams.usable" placeholder="请选择可用区域" clearable>
-          <el-option v-for="dict in dict.type.area_status" :key="dict.value" :label="dict.label" :value="dict.value" />
+      <el-form-item label="可用区域" prop="cardType">
+        <el-select v-model="queryParams.cardType" placeholder="请选择可用区域" clearable>
+          <el-option v-for="area in areaOptions" :key="area.value" :label="area.label" :value="area.value" />
         </el-select>
       </el-form-item>
       <el-form-item label="次数(天)" prop="frequency">
@@ -55,9 +55,11 @@
       <el-table-column label="主键ID" align="center" prop="id" :show-overflow-tooltip="true" v-if="false" />
       <el-table-column label="优惠卡" align="center" prop="cardTitle" min-width="100" :show-overflow-tooltip="true" />
       <el-table-column label="价格" align="center" prop="price" min-width="100" :show-overflow-tooltip="true" />
-      <el-table-column label="可用区域" align="center" prop="usable">
+      <el-table-column label="可用区域" align="center" prop="cardType" min-width="120">
         <template slot-scope="scope">
-          <dict-tag :options="dict.type.area_status" :value="scope.row.usable" />
+          <el-tag size="small" :type="scope.row.cardType === 0 ? 'success' : 'info'">
+            {{ areaLabel(scope.row.cardType) }}
+          </el-tag>
         </template>
       </el-table-column>
       <el-table-column label="次数(天)" align="center" prop="frequency" min-width="100" :show-overflow-tooltip="true" />
@@ -116,12 +118,15 @@
             （沉浸区/带帘、可选座位范围、每张卡可请假几次、是否锁座等）。可以换行写多条。
           </span>
         </el-form-item>
-        <el-form-item label="可用区域">
-          <el-radio-group v-model="form.usable">
-            <el-radio v-for="dict in dict.type.area_status" :key="dict.value" :label="parseInt(dict.value)">
-              {{dict.label}}
+        <el-form-item label="可用区域" prop="cardType">
+          <el-radio-group v-model="form.cardType">
+            <el-radio v-for="area in areaOptions" :key="area.value" :label="area.value">
+              {{ area.label }}
             </el-radio>
           </el-radio-group>
+          <div style="color: #909399; font-size: 12px; line-height: 1.6; margin-top: 6px;">
+            两区通用：经济区和沉浸区（16-19 号）都可预约；仅沉浸区：只可预约 16-19 号。
+          </div>
         </el-form-item>
         <el-form-item label="次数(天)" prop="frequency">
           <el-input v-model="form.frequency" placeholder="请输入次数(天)" />
@@ -176,9 +181,14 @@
 
   export default {
     name: "Card",
-    dicts: ['common_status', 'area_status'],
+    dicts: ['common_status'],
     data() {
       return {
+        areaOptions: [
+          { value: 2, label: '仅经济区' },
+          { value: 1, label: '仅沉浸区' },
+          { value: 0, label: '两区通用' }
+        ],
         // 按钮loading
         buttonLoading: false,
         // 遮罩层
@@ -205,7 +215,7 @@
           pageSize: 10,
           cardTitle: undefined,
           price: undefined,
-          usable: undefined,
+          cardType: undefined,
           frequency: undefined,
           term: undefined,
           status: undefined,
@@ -229,10 +239,10 @@
             message: "价格不能为空",
             trigger: "blur"
           }],
-          usable: [{
+          cardType: [{
             required: true,
-            message: "可用区域不能为空",
-            trigger: "blur"
+            message: "请选择可用区域",
+            trigger: "change"
           }],
           frequency: [{
             required: true,
@@ -256,6 +266,10 @@
       this.getList();
     },
     methods: {
+      areaLabel(value) {
+        const area = this.areaOptions.find(item => item.value === Number(value == null ? 0 : value));
+        return area ? area.label : '未配置';
+      },
       /** 查询优惠卡列表 */
       getList() {
         this.loading = true;
@@ -278,6 +292,7 @@
           cardDesc: undefined,
           price: undefined,
           usable: 0,
+          cardType: 0,
           frequency: undefined,
           term: undefined,
           validStart: undefined,
@@ -321,6 +336,7 @@
         getCard(id).then(response => {
           this.loading = false;
           this.form = response.data;
+          this.$set(this.form, 'cardType', this.form.cardType == null ? 0 : Number(this.form.cardType));
           this.open = true;
           this.title = "修改优惠卡";
         });
@@ -329,6 +345,8 @@
       submitForm() {
         this.$refs["form"].validate(valid => {
           if (valid) {
+            // 旧区域字段仍随表单提交以兼容旧接口，预约权限由 cardType 统一控制。
+            this.form.usable = this.form.cardType === 1 ? 1 : 0;
             this.buttonLoading = true;
             if (this.form.id != null) {
               updateCard(this.form).then(response => {
